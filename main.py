@@ -2,8 +2,11 @@ import os
 # 导入最新的 Ollama 接口，消除警告
 from langchain_ollama import OllamaLLM
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain_core.prompts import PromptTemplate
+import dotenv
+from langchain_openai import ChatOpenAI
+import os
 
 
 def run_bjtu_assistant():
@@ -13,7 +16,7 @@ def run_bjtu_assistant():
     # 显卡配置：确保使用你的 4070
     embeddings = HuggingFaceEmbeddings(
         model_name="BAAI/bge-small-zh-v1.5",
-        model_kwargs={'device': 'cuda'}
+        model_kwargs={'device': 'cpu'}
     )
 
     # 2. 加载向量数据库
@@ -24,8 +27,15 @@ def run_bjtu_assistant():
 
     vector_db = Chroma(persist_directory=db_path, embedding_function=embeddings)
 
-    # 3. 初始化 Ollama 引擎 (使用 DeepSeek-R1)
-    llm = OllamaLLM(model="deepseek-r1:8b", temperature=0.1)  # 低温使回答更严谨、保守。它每次都会倾向于选择概率最高的词
+    # 3. 调用大模型（使用gpt-4o-mini）
+    dotenv.load_dotenv()  #加载当前目录下的 .env 文件
+
+    os.environ['OPENAI_API_KEY'] = os.getenv("OPENAI_API_KEY")
+    os.environ['OPENAI_BASE_URL'] = os.getenv("OPENAI_BASE_URL")
+
+    # 创建大模型实例
+    llm = ChatOpenAI(model="gpt-4o-mini")  # 默认使用
+    #llm = OllamaLLM(model="deepseek-r1:8b", temperature=0.1)  # 低温使回答更严谨、保守。它每次都会倾向于选择概率最高的词
 
     # 4. 定义增强型 Prompt 模板（设定规则）
     # 加入了语义推导指令
