@@ -9,8 +9,8 @@ from generation.prompt import PROMPT_TEMPLATE
 import dotenv
 from langchain_openai import ChatOpenAI
 import os
+from evaluation.rag_evaluator import evaluate_rag_system
 
-eval_buffer = []
 
 # --- 1. 页面配置与自定义样式 ---
 st.set_page_config(page_title="北交大学生手册助手", page_icon="🏫", layout="centered")
@@ -98,11 +98,45 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
+    st.markdown("---")
+    st.markdown("### 📊 系统评估")
+
+    if st.button("运行 RAG 评估"):
+        if len(st.session_state.eval_buffer) == 0:
+            st.warning("⚠️ 当前还没有可评估的问答记录")
+        else:
+            with st.spinner("正在评估系统性能，请稍候..."):
+                try:
+                    eval_result = evaluate_rag_system(
+                        eval_records=st.session_state.eval_buffer,
+                        llm=llm,
+                        embeddings=vector_db._embedding_function,
+                    )
+                    st.success("评估完成！")
+                    df = eval_result.to_pandas()
+                    st.dataframe(
+                        df[
+                            [
+                                "nv_context_relevance",
+                                "answer_relevancy",
+                                "faithfulness",
+                                "nv_response_groundedness",
+                            ]
+                        ],
+                        use_container_width=True,
+                    )
+
+                except Exception as e:
+                    st.error(f"评估失败：{e}")
+
 # --- 5. 对话逻辑 (保持不变) ---
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {"role": "assistant", "content": "同学你好！我是北京交通大学学生手册小助手，有什么我可以帮你的吗？"}
     ]
+
+if "eval_buffer" not in st.session_state:
+    st.session_state.eval_buffer = []
 
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
@@ -132,7 +166,7 @@ if user_query := st.chat_input("请输入您的问题..."):
                     {"role": "assistant", "content": answer}
                 )
                 # ④ 评估指标
-                eval_buffer.append({
+                st.session_state.eval_buffer.append({
                     "query": user_query,
                     "answer": answer,
                     "contexts": [doc.page_content for doc in docs],

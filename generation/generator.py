@@ -12,4 +12,4 @@ def generate_answer(llm, prompt_template, question, context):
         question=question
     )
     response = llm.invoke(prompt)
-    return response
+    return response.content
