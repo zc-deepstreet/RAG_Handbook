@@ -2,6 +2,9 @@ from retrieval.multi_query import generate_multi_queries
 from retrieval.hyde import generate_hypothetical_doc
 from retrieval.rrf import reciprocal_rank_fusion
 from retrieval.model_rerank import model_rerank
+from retrieval.cache import RetrievalResultCache
+
+RETRIEVAL_CACHE = None
 
 
 def retrieve_docs(
@@ -23,6 +26,26 @@ def retrieve_docs(
     """
     检索主入口（支持 Hybrid Retrieval）
     """
+
+    # 先查询有无命中缓存
+    # ===== L1：query → embedding =====
+    global RETRIEVAL_CACHE
+    embedding = vector_db._embedding_function.embed_query(query)
+    if RETRIEVAL_CACHE is None:
+        RETRIEVAL_CACHE = RetrievalResultCache(
+            embedding_dim=len(embedding),
+            max_cache_entries=512,
+            similarity_threshold=0.9,
+        )
+    if RETRIEVAL_CACHE.embedding_dim != len(embedding):
+        raise RuntimeError(
+            f"Embedding dim mismatch: cache={RETRIEVAL_CACHE.embedding_dim}, "
+            f"actual={len(embedding)}"
+        )
+    # ===== L2：embedding → docs =====
+    cached_docs = RETRIEVAL_CACHE.get(embedding)
+    if cached_docs is not None:
+        return cached_docs
 
     # ---------- 1. 构造多路检索 Query ----------
     search_texts = [query]
@@ -69,6 +92,9 @@ def retrieve_docs(
         )
     else:
         fused_docs = fused_docs[:final_top_n]
+
+    # ===== 写入 L2 缓存 =====
+    RETRIEVAL_CACHE.add(embedding, fused_docs)
 
     return fused_docs
 
