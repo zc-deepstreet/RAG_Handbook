@@ -1,5 +1,3 @@
-# retrieval/retriever.py
-
 from retrieval.multi_query import generate_multi_queries
 from retrieval.hyde import generate_hypothetical_doc
 from retrieval.rrf import reciprocal_rank_fusion
@@ -14,6 +12,8 @@ def retrieve_docs(
         fetch_k: int = 60,
         use_multi_query: bool = False,
         use_hyde: bool = False,
+        use_hybrid: bool = False,
+        bm25_retriever=None,
         use_rrf: bool = False,
         use_model_rerank: bool = False,
         rerank_tokenizer=None,
@@ -21,11 +21,10 @@ def retrieve_docs(
         final_top_n: int = 6,
 ):
     """
-        检索主入口：
-        支持 Multi-Query / HyDE / RRF / 模型重排序
-        """
+    检索主入口（支持 Hybrid Retrieval）
+    """
 
-    # ---------- 1. 构造多路检索文本 ----------
+    # ---------- 1. 构造多路检索 Query ----------
     search_texts = [query]
 
     if use_multi_query and llm is not None:
@@ -34,8 +33,9 @@ def retrieve_docs(
     if use_hyde and llm is not None:
         search_texts.append(generate_hypothetical_doc(llm, query))
 
-    # ---------- 2. 多路向量检索（MMR） ----------
     all_doc_lists = []
+
+    # ---------- 2. 向量检索（MMR） ----------
     for text in search_texts:
         docs = vector_db.max_marginal_relevance_search(
             text,
@@ -44,7 +44,12 @@ def retrieve_docs(
         )
         all_doc_lists.append(docs)
 
-    # ---------- 3. RRF 融合 ----------
+    # ---------- 3. Hybrid：BM25 关键词检索 ----------
+    if use_hybrid and bm25_retriever is not None:
+        bm25_docs = bm25_retriever.invoke(query)
+        all_doc_lists.append(bm25_docs)
+
+    # ---------- 4. RRF 融合 ----------
     if use_rrf:
         fused_docs = reciprocal_rank_fusion(
             all_doc_lists,
@@ -53,7 +58,7 @@ def retrieve_docs(
     else:
         fused_docs = [doc for docs in all_doc_lists for doc in docs]
 
-    # ---------- 4. 模型重排序（最终精排） ----------
+    # ---------- 5. 模型重排序（精排） ----------
     if use_model_rerank and rerank_model is not None:
         fused_docs = model_rerank(
             query=query,

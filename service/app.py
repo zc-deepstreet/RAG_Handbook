@@ -12,6 +12,8 @@ import os
 from evaluation.rag_evaluator import evaluate_rag_system
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 import torch
+from langchain_community.retrievers import BM25Retriever
+from langchain_core.documents import Document
 
 # --- 0. 路径与基础设置 ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -154,10 +156,16 @@ def init_models():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     rerank_model.to(device)
     rerank_model.eval()
-    return vector_db, llm, rerank_model, rerank_tokenizer
+
+    raw_docs = vector_db._collection.get(include=["documents"])["documents"]
+    bm25_docs = [Document(page_content=d) for d in raw_docs]
+    bm25_retriever = BM25Retriever.from_documents(bm25_docs)
+    bm25_retriever.k = 20
+
+    return vector_db, llm, rerank_model, rerank_tokenizer, bm25_retriever
 
 
-vector_db, llm, rerank_model, rerank_tokenizer = init_models()
+vector_db, llm, rerank_model, rerank_tokenizer, bm25_retriever = init_models()
 
 # --- 3. 状态管理 ---
 if "sessions" not in st.session_state:
@@ -256,6 +264,8 @@ if prompt := st.chat_input("请输入您的问题..."):
             fetch_k=60,
             use_multi_query=True,
             use_hyde=True,
+            use_hybrid=True,
+            bm25_retriever=bm25_retriever,
             use_rrf=True,
             use_model_rerank=True,
             rerank_model=rerank_model,
