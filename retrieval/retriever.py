@@ -1,24 +1,74 @@
 # retrieval/retriever.py
 
-def retrieve_docs(vector_db, query, k=6, fetch_k=20):
+from retrieval.multi_query import generate_multi_queries
+from retrieval.hyde import generate_hypothetical_doc
+from retrieval.rrf import reciprocal_rank_fusion
+from retrieval.model_rerank import model_rerank
+
+
+def retrieve_docs(
+        vector_db,
+        query: str,
+        llm=None,
+        k: int = 30,
+        fetch_k: int = 60,
+        use_multi_query: bool = False,
+        use_hyde: bool = False,
+        use_rrf: bool = False,
+        use_model_rerank: bool = False,
+        rerank_tokenizer=None,
+        rerank_model=None,
+        final_top_n: int = 6,
+):
     """
-    检索模块：
-    - 查询嵌入
-    - 相似度检索（MMR）
-    """
-    docs = vector_db.max_marginal_relevance_search(
-        query,
-        k=k,
-        fetch_k=fetch_k
-    )
-    return docs
+        检索主入口：
+        支持 Multi-Query / HyDE / RRF / 模型重排序
+        """
+
+    # ---------- 1. 构造多路检索文本 ----------
+    search_texts = [query]
+
+    if use_multi_query and llm is not None:
+        search_texts.extend(generate_multi_queries(llm, query))
+
+    if use_hyde and llm is not None:
+        search_texts.append(generate_hypothetical_doc(llm, query))
+
+    # ---------- 2. 多路向量检索（MMR） ----------
+    all_doc_lists = []
+    for text in search_texts:
+        docs = vector_db.max_marginal_relevance_search(
+            text,
+            k=k,
+            fetch_k=fetch_k,
+        )
+        all_doc_lists.append(docs)
+
+    # ---------- 3. RRF 融合 ----------
+    if use_rrf:
+        fused_docs = reciprocal_rank_fusion(
+            all_doc_lists,
+            docs_return_num=max(final_top_n * 3, 20),
+        )
+    else:
+        fused_docs = [doc for docs in all_doc_lists for doc in docs]
+
+    # ---------- 4. 模型重排序（最终精排） ----------
+    if use_model_rerank and rerank_model is not None:
+        fused_docs = model_rerank(
+            query=query,
+            docs=fused_docs,
+            rerank_tokenizer=rerank_tokenizer,
+            rerank_model=rerank_model,
+            docs_return_num=final_top_n,
+        )
+    else:
+        fused_docs = fused_docs[:final_top_n]
+
+    return fused_docs
 
 
 def build_context(docs):
-    """
-    上下文提取模块：
-    将检索到的文档整理为 Prompt 上下文
-    """
     context = ""
     for i, doc in enumerate(docs):
         context += f"\n--- 资料片段 {i + 1} ---\n{doc.page_content}\n"

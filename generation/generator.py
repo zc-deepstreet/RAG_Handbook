@@ -13,3 +13,10 @@ def generate_answer(llm, prompt_template, question, context):
     )
     response = llm.invoke(prompt)
     return response.content
+
+
+def build_prompt(prompt_template, question, context):
+    return prompt_template.format(
+        question=question,
+        context=context
+    )

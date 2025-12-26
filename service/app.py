@@ -1,10 +1,17 @@
 import sys
 import os
 import streamlit as st
-import dotenv
-from langchain_openai import ChatOpenAI
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
+from retrieval.retriever import retrieve_docs, build_context
+from generation.generator import generate_answer, build_prompt
+from generation.prompt import PROMPT_TEMPLATE
+import dotenv
+from langchain_openai import ChatOpenAI
+import os
+from evaluation.rag_evaluator import evaluate_rag_system
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+import torch
 
 # --- 0. 路径与基础设置 ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -21,7 +28,6 @@ except ImportError:
 
 # 【定义核心变量】
 WELCOME_MSG = "我是北京交通大学学生手册小助手，可以帮你解答有关学习规章制度的问题。请问有什么我可以帮你的吗？"
-
 # --- 1. 页面配置与 UI 优化 CSS ---
 st.set_page_config(page_title="北交大学生手册助手", page_icon="🏫", layout="wide")
 
@@ -136,12 +142,22 @@ def init_models():
     )
     db_path = os.path.join(project_root, "chroma_db")
     vector_db = Chroma(persist_directory=db_path, embedding_function=embeddings)
+
     dotenv.load_dotenv()
-    llm = ChatOpenAI(model="gpt-4o-mini", streaming=True)
-    return vector_db, llm
+    llm = ChatOpenAI(model="gpt-4o-mini", streaming=True, temperature=0.3)
+
+    rerank_model_name = "BAAI/bge-reranker-base"
+    rerank_tokenizer = AutoTokenizer.from_pretrained(rerank_model_name)
+    rerank_model = AutoModelForSequenceClassification.from_pretrained(
+        rerank_model_name
+    )
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    rerank_model.to(device)
+    rerank_model.eval()
+    return vector_db, llm, rerank_model, rerank_tokenizer
 
 
-vector_db, llm = init_models()
+vector_db, llm, rerank_model, rerank_tokenizer = init_models()
 
 # --- 3. 状态管理 ---
 if "sessions" not in st.session_state:
@@ -226,16 +242,35 @@ if prompt := st.chat_input("请输入您的问题..."):
         st.markdown(prompt)
 
     with st.chat_message("assistant", avatar="🤖"):
-        docs = retrieve_docs(vector_db, prompt)
+        # ① 检索
+        # docs = retrieve_docs(vector_db,
+        #                      prompt,
+        #                      llm=llm,
+        #                      use_multi_query=True,
+        #                      use_hyde=True)
+        docs = retrieve_docs(
+            vector_db,
+            prompt,
+            llm=llm,
+            k=30,
+            fetch_k=60,
+            use_multi_query=True,
+            use_hyde=True,
+            use_rrf=True,
+            use_model_rerank=True,
+            rerank_model=rerank_model,
+            rerank_tokenizer=rerank_tokenizer,
+            final_top_n=6,
+        )
+        # ② 构建上下文
         context = build_context(docs)
 
-
         def stream_response():
-            full_prompt = f"参考资料：{context}\n问题：{prompt}\n回答："
+            full_prompt = build_prompt(PROMPT_TEMPLATE, prompt, context)
             for chunk in llm.stream(full_prompt):
                 yield chunk.content
 
-
+        # ③ 生成回答
         full_answer = st.write_stream(stream_response())
         current_session["messages"].append({"role": "assistant", "content": full_answer})
 
