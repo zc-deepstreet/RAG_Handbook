@@ -4,7 +4,7 @@ import streamlit as st
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from retrieval.retriever import retrieve_docs, build_context
-from generation.generator import generate_answer, build_prompt
+from generation.generator import generate_answer,generate_answer_stream, build_prompt,rephrase_user_query
 from generation.prompt import PROMPT_TEMPLATE
 import dotenv
 from langchain_openai import ChatOpenAI
@@ -13,6 +13,7 @@ from evaluation.rag_evaluator import evaluate_rag_system
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 import torch
 
+# 新增：调用generator中的函数进行流式生成
 # --- 0. 路径与基础设置 ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
@@ -243,14 +244,9 @@ if prompt := st.chat_input("请输入您的问题..."):
 
     with st.chat_message("assistant", avatar="🤖"):
         # ① 检索
-        # docs = retrieve_docs(vector_db,
-        #                      prompt,
-        #                      llm=llm,
-        #                      use_multi_query=True,
-        #                      use_hyde=True)
         docs = retrieve_docs(
             vector_db,
-            prompt,
+            prompt,  # 使用原始问题检索，重述在generator内部处理
             llm=llm,
             k=30,
             fetch_k=60,
@@ -265,18 +261,26 @@ if prompt := st.chat_input("请输入您的问题..."):
         # ② 构建上下文
         context = build_context(docs)
 
-        def stream_response():
-            full_prompt = build_prompt(PROMPT_TEMPLATE, prompt, context)
-            for chunk in llm.stream(full_prompt):
-                yield chunk.content
+        # ③ 获取对话历史（排除当前这条用户消息）
+        conversation_history = current_session["messages"][:-1]  # 排除当前用户消息
 
-        # ③ 生成回答
-        full_answer = st.write_stream(stream_response())
+        # ④ 生成回答（使用增强的流式生成）
+        full_answer = st.write_stream(
+            generate_answer_stream(
+                llm,
+                PROMPT_TEMPLATE,
+                prompt,  # 原始问题
+                context,
+                conversation_history=conversation_history,
+                docs=docs  # 传递文档用于引用生成
+            )
+        )
         current_session["messages"].append({"role": "assistant", "content": full_answer})
 
         # 记录评估数据
         st.session_state.eval_buffer.append({
             "query": prompt,
             "answer": full_answer,
-            "contexts": [d.page_content for d in docs]
+            "contexts": [d.page_content for d in docs],
+            "rephrased_query": rephrase_user_query(prompt, conversation_history)  # 记录重述后的问题
         })
