@@ -27,9 +27,6 @@ PROMPT_TEMPLATE = PromptTemplate.from_template("""
 【参考资料】：
 {context}
 
-【引用来源】：
-{citations}
-
 【学生问题】：{question}
 
 回答要求：

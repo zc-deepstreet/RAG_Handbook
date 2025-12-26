@@ -243,10 +243,10 @@ if prompt := st.chat_input("请输入您的问题..."):
         st.markdown(prompt)
 
     with st.chat_message("assistant", avatar="🤖"):
-        # ① 检索
+        # ① 检索（保持不变）
         docs = retrieve_docs(
             vector_db,
-            prompt,  # 使用原始问题检索，重述在generator内部处理
+            prompt,
             llm=llm,
             k=30,
             fetch_k=60,
@@ -258,21 +258,21 @@ if prompt := st.chat_input("请输入您的问题..."):
             rerank_tokenizer=rerank_tokenizer,
             final_top_n=6,
         )
-        # ② 构建上下文
+        # ② 构建上下文（保持不变）
         context = build_context(docs)
 
-        # ③ 获取对话历史（排除当前这条用户消息）
-        conversation_history = current_session["messages"][:-1]  # 排除当前用户消息
+        # ③ 获取对话历史
+        conversation_history = current_session["messages"][:-1]
 
-        # ④ 生成回答（使用增强的流式生成）
+
+        # ④ 生成回答（使用增强的流式生成，（移除docs参数））
         full_answer = st.write_stream(
             generate_answer_stream(
                 llm,
                 PROMPT_TEMPLATE,
                 prompt,  # 原始问题
                 context,
-                conversation_history=conversation_history,
-                docs=docs  # 传递文档用于引用生成
+                conversation_history=conversation_history
             )
         )
         current_session["messages"].append({"role": "assistant", "content": full_answer})
