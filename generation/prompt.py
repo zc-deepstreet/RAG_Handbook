@@ -21,7 +21,7 @@ PROMPT_TEMPLATE = PromptTemplate.from_template("""
    "抱歉，在《北京交通大学学生手册》中未查询到相关条文。"
 7. 严禁编造不存在的校规。
 
-对话历史（最近3轮）：
+对话历史：
 {conversation_history}
 
 【参考资料】：
