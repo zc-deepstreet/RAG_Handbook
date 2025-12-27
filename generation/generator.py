@@ -86,8 +86,8 @@ def build_prompt_with_history(prompt_template, question, context, conversation_h
     # 构建对话历史上下文
     history_context = ""
     if conversation_history:
-        # 只保留最近3轮对话作为历史
-        recent_history = conversation_history[-6:]  # 最近3轮（每轮2条消息）
+        # 只保留最近的对话作为历史，可以自己设置
+        recent_history = conversation_history[-10:]  # 目前是最近5轮（每轮2条消息）
         for msg in recent_history:
             role = "用户" if msg["role"] == "user" else "助手"
             history_context += f"{role}: {msg['content']}\n"
