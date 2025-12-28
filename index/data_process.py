@@ -7,7 +7,7 @@ from langchain_community.vectorstores import Chroma
 
 def build_knowledge_base():
     # 1. 路径配置 (使用 r 保证路径正确)
-    pdf_path = r"C:/Users/ASUS/Desktop/LLM/RAG_Handbook/data/handbook.pdf"
+    pdf_path = r"E:\大模型RAG\data\handbook.pdf"
     db_path = "../chroma_db"
 
     if not os.path.exists(pdf_path):
